@@ -1,6 +1,6 @@
 # Purpose
 
-I am following [guides created by Google/Alphabet](https://developer.android.com/courses/pathways)
+I am following [guides created by Google/Alphabet](https://developer.android.com/courses)
 in order to learn how to develop for android. My intentions is to to create a simple whiteboard 
 type application.
 
