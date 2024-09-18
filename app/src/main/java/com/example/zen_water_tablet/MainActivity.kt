@@ -5,11 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,7 +51,9 @@ import com.example.zen_water_tablet.model.PenColor
 import com.example.zen_water_tablet.model.PenSize
 import com.example.zen_water_tablet.ui.theme.Zen_water_tabletTheme
 import com.example.zen_water_tablet.model.Settings
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,8 +74,6 @@ enum class ScreenState {
     Options_Menu
 }
 
-
-
 @Composable
 fun AppScreen(appSettings: Settings, modifier: Modifier = Modifier) {
     var screenState by remember {
@@ -79,7 +83,7 @@ fun AppScreen(appSettings: Settings, modifier: Modifier = Modifier) {
         ScreenState.Main_Menu -> StartMenu(screenState = screenState, onScreenChange = {screenState = it})
         ScreenState.Drawing_Canvas -> {
             if(appSettings.autoErase) {
-                DrawingFadingCanvas(
+                DrawingFadingLinesCanvas(
                     screenState = screenState,
                     onScreenChange = { screenState = it },
                     appSettings
@@ -119,10 +123,18 @@ fun StartMenu(screenState: ScreenState, onScreenChange: (ScreenState) -> Unit){
     }
 }
 
+data class Line(
+    val start: Offset,
+    val end: Offset,
+    val alpha: Animatable<Float, *>?,
+    val color: Color
+)
+
 @Composable
-fun DrawingFadingCanvas(screenState: ScreenState, onScreenChange: (ScreenState) -> Unit, appSettings: Settings) {
-    var points by remember { mutableStateOf(listOf<AnimatablePoint>()) }
+fun DrawingFadingLinesCanvas(screenState: ScreenState, onScreenChange: (ScreenState) -> Unit, appSettings: Settings) {
+    var lines = remember { mutableStateListOf<Line>()}
     val scope = rememberCoroutineScope()
+
     var radius = 20f
     when(appSettings.size){
         PenSize.small -> radius = 10f
@@ -154,15 +166,17 @@ fun DrawingFadingCanvas(screenState: ScreenState, onScreenChange: (ScreenState) 
 
         Canvas(modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
+            .pointerInput(true) {
                 detectDragGestures() { change, dragAmount ->
                     val animatableAlpha = Animatable(1f)
-                    val point =
-                        AnimatablePoint(
-                            Offset(change.position.x, change.position.y),
-                            animatableAlpha
+                    val newLine =
+                        Line(
+                            start = change.position - dragAmount,
+                            end = change.position,
+                            alpha = animatableAlpha,
+                            color = color
                         )
-                    points = points + point
+                    lines.add(newLine)
 
                     scope.launch {
                         if (appSettings.autoErase) {
@@ -171,35 +185,37 @@ fun DrawingFadingCanvas(screenState: ScreenState, onScreenChange: (ScreenState) 
                                 animationSpec = tween(durationMillis = appSettings.timeToErase.toInt() * 1000)
                             )
                         }
-                        points = points.filter { it != point }
+                        lines.filter { it != newLine }
                     }
                 }
             }
         ) {
-            points.forEach { point ->
-                drawCircle(
-                    color = color.copy(alpha = point.alpha.value),
-                    radius = radius,
-                    center = point.offset
+            lines.forEach { line ->
+                drawLine(
+                    color = line.color.copy(alpha = line.alpha?.value ?: 0.0f),
+                    start = line.start,
+                    end = line.end,
+                    strokeWidth = radius,
+                    cap = StrokeCap.Butt
                 )
             }
-//        points.zipWithNext() { start, end ->
-//            drawLine(
-//                color = Color.Red.copy(alpha = start.alpha.value),
-//                start = start.offset,
-//                end = end.offset,
-//                strokeWidth = 24f,
-//            )
-//        }
         }
-        Column(horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.Top, modifier = Modifier
-            .fillMaxHeight()
-            .padding(top = 24.dp)) {
+        Row(horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)){
             Button( onClick = { onScreenChange(ScreenState.Main_Menu) } ) {
                 Text(text="Main Menu")
             }
             Button( onClick = {onScreenChange(ScreenState.Options_Menu) } ){
                 Text(text="Options Menu")
+            }
+            Button( onClick = {
+                appSettings.penColor = PenColor.blue
+                color = Color.Blue} ) {
+                Text(text="Blue")
+            }
+            Button( onClick = {
+                appSettings.penColor = PenColor.red
+                color = Color.Red } ){
+                Text(text="Red")
             }
         }
     }
@@ -207,7 +223,8 @@ fun DrawingFadingCanvas(screenState: ScreenState, onScreenChange: (ScreenState) 
 
 @Composable
 fun DrawingCanvas(screenState: ScreenState, onScreenChange: (ScreenState) -> Unit, appSettings: Settings) {
-    var points by remember { mutableStateOf(listOf<Offset>()) }
+    var lines = remember { mutableStateListOf<Line>()}
+    var redolines = remember { mutableStateListOf<Line>()}
     var radius = 20f
     when(appSettings.size){
         PenSize.small -> radius = 10f
@@ -232,50 +249,93 @@ fun DrawingCanvas(screenState: ScreenState, onScreenChange: (ScreenState) -> Uni
     }
 
     Surface(color = bgColor) {
-        if(appSettings.backGroundImage != null)
-        {
-            Image(painter= painterResource(id = appSettings.backGroundImage!!), contentDescription = "Pitch", modifier = Modifier.fillMaxSize())
+        if (appSettings.backGroundImage != null) {
+            Image(
+                painter = painterResource(id = appSettings.backGroundImage!!),
+                contentDescription = "Pitch",
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
         Canvas(modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
+            .pointerInput(true) {
                 detectDragGestures() { change, dragAmount ->
-                    val point = Offset(change.position.x, change.position.y)
-                    points = points + point
+                    if (redolines.size > 0) {
+                        redolines.clear()
+                    }
+                    val newLine =
+                        Line(
+                            start = change.position - dragAmount,
+                            end = change.position,
+                            alpha = null,
+                            color = color
+                        )
+                    lines.add(newLine)
 
                 }
             }
         ) {
-            points.forEach { point ->
-                drawCircle(
-                    color = color.copy(),
-                    radius = radius,
-                    center = point
+            lines.forEach { line ->
+                drawLine(
+                    color = line.color.copy(),
+                    start = line.start,
+                    end = line.end,
+                    strokeWidth = radius,
+                    cap = StrokeCap.Butt
                 )
             }
-//        points.zipWithNext() { start, end ->
-//            drawLine(
-//                color = Color.Red.copy(alpha = start.alpha.value),
-//                start = start.offset,
-//                end = end.offset,
-//                strokeWidth = 24f,
-//            )
-//        }
         }
-        Column(horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.Top, modifier = Modifier
-            .fillMaxHeight()
-            .padding(top = 24.dp)) {
-            Button( onClick = { onScreenChange(ScreenState.Main_Menu) } ) {
-                Text(text="Main Menu")
+        Box(modifier = Modifier.fillMaxSize()) {
+            Row(
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp)
+            ) {
+                Button(onClick = { onScreenChange(ScreenState.Main_Menu) }) {
+                    Text(text = "Main Menu")
+                }
+                Button(onClick = { onScreenChange(ScreenState.Options_Menu) }) {
+                    Text(text = "Options Menu")
+                }
+                Button(onClick = {
+                    appSettings.penColor = PenColor.blue
+                    color = Color.Blue
+                }) {
+                    Text(text = "Blue")
+                }
+                Button(onClick = {
+                    appSettings.penColor = PenColor.red
+                    color = Color.Red
+                }) {
+                    Text(text = "Red")
+                }
             }
-            Button( onClick = {onScreenChange(ScreenState.Options_Menu) } ){
-                Text(text="Options Menu")
+            Row(
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+            ) {
+                Button(onClick = {
+                    val line = lines.removeLastOrNull()
+                    if (line != null) {
+                        redolines.add(line);
+                    }
+                }) {
+                    Text(text = "Undo")
+                }
+                Button(onClick = {
+                    val line = redolines.removeLastOrNull()
+                    if (line != null) {
+                        lines.add(line);
+                    }
+                }) {
+                    Text(text = "Redo")
+                }
             }
         }
     }
 }
-
 
 @Composable
 fun OptionsMenu(            screenState: ScreenState, onScreenChange : (ScreenState) -> Unit,
@@ -297,7 +357,7 @@ fun OptionsMenu(            screenState: ScreenState, onScreenChange : (ScreenSt
                     time = it ?: "0"
                     appSettings.timeToErase = time }
                     , keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true, modifier = Modifier.height(48.dp))
+                    singleLine = true, modifier = Modifier.height(56.dp))
             }
             Row() {
                 Text(text="Brush Size")
@@ -344,7 +404,13 @@ fun OptionsMenu(            screenState: ScreenState, onScreenChange : (ScreenSt
             Row() {
                 Text(text="Background Image")
                 Button(onClick = { appSettings.backGroundImage = R.drawable.pitch }) {
-                    Text("Choose Image")
+                    Text("Field")
+                }
+                Button(onClick = { appSettings.backGroundImage = R.drawable.hockeyrink }) {
+                    Text("Hockey")
+                }
+                Button(onClick = { appSettings.backGroundImage = null }) {
+                    Text("Blank")
                 }
             }
             Button( onClick = { onScreenChange(ScreenState.Main_Menu) } ) {
@@ -358,8 +424,3 @@ fun OptionsMenu(            screenState: ScreenState, onScreenChange : (ScreenSt
     }
     
 }
-
-data class AnimatablePoint(
-    val offset: Offset,
-    val alpha: Animatable<Float, *>
-)
