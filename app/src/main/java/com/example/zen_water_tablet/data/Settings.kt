@@ -1,6 +1,4 @@
-package com.example.zen_water_tablet.model
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+package com.example.zen_water_tablet.data
 
 enum class PenSize{
     small,
@@ -23,12 +21,13 @@ enum class BackgroundColor{
     black,
     green,
     yellow,
-    white
+    white,
+    clear
 }
 data class Settings(var autoErase: Boolean,
-var timeToErase: String,
-var size: PenSize,
-var penColor: PenColor,
-var backGroundColor: BackgroundColor,
-var backGroundImage: Int?
+                    var timeToErase: String,
+                    var size: PenSize,
+                    var penColor: PenColor,
+                    var backGroundColor: BackgroundColor,
+                    var backGroundImage: Int?
 )
